@@ -11,22 +11,42 @@ const { chromium } = require('playwright-core');
 const { ChatGPTClient } = require('./lib/chatgpt-client');
 const { OAuthClient } = require('./lib/oauth-client');
 const { MailTempMail } = require('./lib/mail-tempmail');
+const { MailAwaMail } = require('./lib/mail-awamail');
 const { MailOutlookEmail } = require('./lib/mail-outlook-email');
+const { MultiMailProvider, providerLabel } = require('./lib/mail-multi');
 const config = require('./config');
 const { generateRandomPassword, generateDeviceId } = require('./lib/utils');
 const { generateOAuthUrl, submitCallbackUrl, decodeJwtPayload } = require('./lib/oauth');
 const { generateRandomUserInfo } = require('./lib/constants');
 
+const AUTO_MAIL_PROVIDER_ORDER = ['tempmail', 'awamail'];
+const ORDERABLE_MAIL_PROVIDERS = new Set(['tempmail', 'awamail', 'outlookapi']);
+
 function normalizeMailProvider(value) {
-  const provider = String(value || '2925').trim().toLowerCase();
-  if (provider === '2925' || provider === 'tempmail' || provider === 'cfmail' || provider === 'outlookapi') {
+  const provider = String(value || 'auto').trim().toLowerCase();
+  if (provider === 'auto' || provider === 'tempmail' || provider === 'awamail' || provider === '2925' || provider === 'cfmail' || provider === 'outlookapi') {
     return provider;
   }
   throw new Error(`Unsupported mail provider: ${value}`);
 }
 
+function normalizeMailProviderOrder(value) {
+  const rawList = Array.isArray(value)
+    ? value
+    : String(value || '')
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+
+  const normalized = rawList
+    .map((item) => normalizeMailProvider(item))
+    .filter((item) => ORDERABLE_MAIL_PROVIDERS.has(item));
+
+  return [...new Set(normalized.length > 0 ? normalized : AUTO_MAIL_PROVIDER_ORDER)];
+}
+
 function shouldAutoAllocateMailbox(provider, email = '') {
-  if (provider === 'tempmail' || provider === 'cfmail') {
+  if (provider === 'auto' || provider === 'tempmail' || provider === 'awamail' || provider === 'cfmail') {
     return true;
   }
 
@@ -48,7 +68,8 @@ function parseArgs() {
     headless: config.headless,
     backgroundWindow: config.backgroundWindow,
     proxy: config.proxy || '',
-    mailProvider: normalizeMailProvider(config.mailProvider || '2925'),
+    mailProvider: normalizeMailProvider(config.mailProvider || 'auto'),
+    mailProviderOrder: normalizeMailProviderOrder(config.mailProviderOrder || AUTO_MAIL_PROVIDER_ORDER),
     manualOAuth: false,
     callbackUrl: '',
     oauthStateFile: '',
@@ -84,6 +105,9 @@ function parseArgs() {
       case '--mail-provider':
         opts.mailProvider = normalizeMailProvider(args[++i]);
         break;
+      case '--mail-provider-order':
+        opts.mailProviderOrder = normalizeMailProviderOrder(args[++i]);
+        break;
       case '--manual-oauth':
         opts.manualOAuth = true;
         break;
@@ -100,8 +124,9 @@ ChatGPT registration tool
 Usage:
   node register.js --email <email> --password <password>
   node register.js --count 5 --prefix dolphinthauto
+  node register.js --count 3 --mail-provider auto
   node register.js --count 3 --mail-provider tempmail
-  node register.js --count 3 --mail-provider cfmail
+  node register.js --count 3 --mail-provider awamail
   node register.js --count 3 --mail-provider outlookapi
   node register.js --manual-oauth
   node register.js --manual-oauth --callback-url "<http://localhost:1455/auth/callback?...>"
@@ -116,7 +141,8 @@ Options:
   --headless        Run in headless mode
   --background-window  Keep browser UI but start minimized/in background when possible
   --proxy           Main browser proxy, for example http://127.0.0.1:7890
-  --mail-provider   2925 | tempmail | cfmail | outlookapi
+  --mail-provider   auto | tempmail | awamail | outlookapi
+  --mail-provider-order  Provider fallback order for auto mode, for example tempmail,awamail
   --manual-oauth    Generate or complete a manual OAuth PKCE flow for Codex tokens
   --callback-url    OAuth callback URL used to exchange the authorization code
   --oauth-state-file  Path to the saved OAuth state/code_verifier JSON
@@ -160,14 +186,48 @@ async function launchBrowser(opts) {
   return chromium.launch(launchOptions);
 }
 
+function createConcreteMailbox(provider, runtimeConfig) {
+  if (provider === 'tempmail') {
+    return {
+      mailbox: new MailTempMail(runtimeConfig),
+      mailContext: null,
+    };
+  }
+
+  if (provider === 'awamail') {
+    return {
+      mailbox: new MailAwaMail(runtimeConfig),
+      mailContext: null,
+    };
+  }
+
+  if (provider === 'outlookapi') {
+    return {
+      mailbox: new MailOutlookEmail(runtimeConfig),
+      mailContext: null,
+    };
+  }
+
+  if (provider === '2925' || provider === 'cfmail') {
+    throw new Error(`Mail provider ${provider} is not available in the current project build.`);
+  }
+
+  throw new Error(`Unsupported mail provider: ${provider}`);
+}
+
 async function createMailbox(browser, opts) {
   const runtimeConfig = {
     ...config,
     proxy: opts.proxy || config.proxy || '',
     mailProvider: opts.mailProvider,
+    mailProviderOrder: normalizeMailProviderOrder(opts.mailProviderOrder || config.mailProviderOrder || AUTO_MAIL_PROVIDER_ORDER),
     tempmail: {
       ...(config.tempmail || {}),
       proxy: config.tempmail?.proxy || opts.proxy || config.proxy || '',
+    },
+    awamail: {
+      ...(config.awamail || {}),
+      proxy: config.awamail?.proxy || opts.proxy || config.proxy || '',
     },
     cfmail: {
       ...(config.cfmail || {}),
@@ -178,32 +238,21 @@ async function createMailbox(browser, opts) {
     },
   };
 
-  if (opts.mailProvider === 'tempmail') {
+  if (opts.mailProvider === 'auto') {
     return {
-      mailbox: new MailTempMail(runtimeConfig),
+      mailbox: new MultiMailProvider(runtimeConfig, {
+        order: runtimeConfig.mailProviderOrder,
+        factories: {
+          tempmail: () => new MailTempMail(runtimeConfig),
+          awamail: () => new MailAwaMail(runtimeConfig),
+          outlookapi: () => new MailOutlookEmail(runtimeConfig),
+        },
+      }),
       mailContext: null,
     };
   }
 
-  if (opts.mailProvider === 'cfmail') {
-    return {
-      mailbox: new MailCfmail(runtimeConfig),
-      mailContext: null,
-    };
-  }
-
-  if (opts.mailProvider === 'outlookapi') {
-    return {
-      mailbox: new MailOutlookEmail(runtimeConfig),
-      mailContext: null,
-    };
-  }
-
-  const mailContext = await browser.newContext();
-  return {
-    mailbox: new Mail2925(mailContext, runtimeConfig),
-    mailContext,
-  };
+  return createConcreteMailbox(opts.mailProvider, runtimeConfig);
 }
 
 function splitUserInfo(userInfo) {
@@ -582,16 +631,17 @@ async function registerSingleAccount(email, password, browser, opts) {
   try {
     await mailbox.init();
     if (shouldAutoAllocateMailbox(opts.mailProvider, email)) {
-      const providerLabel = opts.mailProvider === 'cfmail'
-        ? 'cfmail'
-        : opts.mailProvider === 'outlookapi'
-          ? 'outlook-email'
-          : 'temp-mail';
-      console.log(`\nRequesting ${providerLabel} address...`);
+      const requestedLabel = opts.mailProvider === 'auto'
+        ? `mailbox (${opts.mailProviderOrder.join(' -> ')})`
+        : providerLabel(opts.mailProvider);
+      console.log(`\nRequesting ${requestedLabel} address...`);
       const created = await mailbox.createAddress();
       email = created.address;
       result.email = email;
-      console.log(`${providerLabel} address: ${email}`);
+      result.mailProvider = created.provider || mailbox.getActiveProvider?.() || opts.mailProvider;
+      console.log(`${created.providerLabel || providerLabel(result.mailProvider)} address: ${email}`);
+    } else {
+      result.mailProvider = opts.mailProvider;
     }
 
     console.log(`\n${'='.repeat(60)}`);
@@ -703,7 +753,7 @@ async function main() {
 
   const accounts = [];
 
-  if (opts.mailProvider === 'tempmail' || opts.mailProvider === 'cfmail') {
+  if (opts.mailProvider === 'auto' || opts.mailProvider === 'tempmail' || opts.mailProvider === 'awamail' || opts.mailProvider === 'cfmail') {
     if (opts.email) {
       console.log(`Ignoring --email in ${opts.mailProvider} mode. The mailbox will be created automatically.`);
     }
@@ -745,6 +795,9 @@ async function main() {
   console.log(`Account count: ${accounts.length}`);
   console.log(`Browser: ${opts.browser}`);
   console.log(`Mail provider: ${opts.mailProvider}`);
+  if (opts.mailProvider === 'auto') {
+    console.log(`Mail provider order: ${opts.mailProviderOrder.join(' -> ')}`);
+  }
 
   const browser = await launchBrowser(opts);
   const results = [];

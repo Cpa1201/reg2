@@ -52,6 +52,20 @@ function parseOptionalInteger(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function parseList(value, defaultValue = []) {
+  const text = String(value ?? '').trim();
+  if (!text) {
+    return [...defaultValue];
+  }
+
+  return [...new Set(
+    text
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean),
+  )];
+}
+
 function resolvePreferredPath(...candidates) {
   for (const candidate of candidates) {
     const value = String(candidate || '').trim();
@@ -69,6 +83,7 @@ function resolvePreferredPath(...candidates) {
 }
 
 const env = loadEnv();
+const DEFAULT_MAIL_PROVIDER_ORDER = ['tempmail', 'awamail'];
 
 const defaultCfmailConfigPath = resolvePreferredPath(
   env.CFMAIL_CONFIG_PATH || 'cfmail_accounts.json',
@@ -76,7 +91,8 @@ const defaultCfmailConfigPath = resolvePreferredPath(
 );
 
 const config = {
-  mailProvider: env.MAIL_PROVIDER || 'tempmail',
+  mailProvider: env.MAIL_PROVIDER || 'auto',
+  mailProviderOrder: parseList(env.MAIL_PROVIDER_ORDER, DEFAULT_MAIL_PROVIDER_ORDER),
   mail2925: {
     account: env.MAIL2925_ACCOUNT || '',
     password: env.MAIL2925_PASSWORD || '',
@@ -86,6 +102,10 @@ const config = {
     proxy: env.TEMPMAIL_PROXY || '',
     part: env.TEMPMAIL_PART || 'main',
     expireMinutes: parseInteger(env.TEMPMAIL_EXPIRE_MINUTES, 1440),
+  },
+  awamail: {
+    baseUrl: env.AWAMAIL_BASE_URL || 'https://awamail.com',
+    proxy: env.AWAMAIL_PROXY || env.PROXY || '',
   },
   cfmail: {
     configPath: defaultCfmailConfigPath,

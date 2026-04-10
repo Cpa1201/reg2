@@ -5,7 +5,7 @@
   "description": "ChatGPT 自动注册工具 (Node.js/Playwright)",
   "scripts": {
     "register": "node register.js",
-    "test:mail": "node -e \"const { MailTempMail } = require('./lib/mail-tempmail'); console.log('mail-tempmail loaded:', typeof MailTempMail === 'function')\""
+    "test:mail": "node -e \"const { MailTempMail } = require('./lib/mail-tempmail'); const { MailAwaMail } = require('./lib/mail-awamail'); const { MultiMailProvider } = require('./lib/mail-multi'); console.log('mail-tempmail loaded:', typeof MailTempMail === 'function'); console.log('mail-awamail loaded:', typeof MailAwaMail === 'function'); console.log('mail-multi loaded:', typeof MultiMailProvider === 'function')\""
   },
   "dependencies": {
     "https-proxy-agent": "^7.0.6",
