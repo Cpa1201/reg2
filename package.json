@@ -1,0 +1,14 @@
+{
+  "name": "chatgpt-register",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ChatGPT 自动注册工具 (Node.js/Playwright)",
+  "scripts": {
+    "register": "node register.js",
+    "test:mail": "node -e \"const { MailTempMail } = require('./lib/mail-tempmail'); console.log('mail-tempmail loaded:', typeof MailTempMail === 'function')\""
+  },
+  "dependencies": {
+    "https-proxy-agent": "^7.0.6",
+    "playwright-core": "^1.59.1"
+  }
+}
