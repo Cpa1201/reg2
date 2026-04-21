@@ -1,0 +1,44 @@
+# =========================
+# Node.js
+# =========================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# =========================
+# Environment / secrets
+# =========================
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.pfx
+
+# =========================
+# Runtime outputs
+# =========================
+output/
+tokens/
+*.log
+*.tmp
+*.temp
+
+# =========================
+# Generated data
+# =========================
+data/generator_domains_full.txt
+
+# =========================
+# OS / Editor
+# =========================
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
+*.swo
+

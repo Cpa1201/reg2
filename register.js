@@ -11,6 +11,8 @@ const { chromium } = require('playwright-core');
 const { ChatGPTClient } = require('./lib/chatgpt-client');
 const { OAuthClient } = require('./lib/oauth-client');
 const { MailTempMail } = require('./lib/mail-tempmail');
+const { MailTenMinuteMail } = require('./lib/mail-tenminutemail');
+const { MailGeneratorEmail } = require('./lib/mail-generator-email');
 const { MailAwaMail } = require('./lib/mail-awamail');
 const { MailOutlookEmail } = require('./lib/mail-outlook-email');
 const { MultiMailProvider, providerLabel } = require('./lib/mail-multi');
@@ -19,12 +21,21 @@ const { generateRandomPassword, generateDeviceId } = require('./lib/utils');
 const { generateOAuthUrl, submitCallbackUrl, decodeJwtPayload } = require('./lib/oauth');
 const { generateRandomUserInfo } = require('./lib/constants');
 
-const AUTO_MAIL_PROVIDER_ORDER = ['tempmail', 'awamail'];
-const ORDERABLE_MAIL_PROVIDERS = new Set(['tempmail', 'awamail', 'outlookapi']);
+const AUTO_MAIL_PROVIDER_ORDER = ['generator_email', 'tenminutemail', 'tempmail', 'awamail'];
+const ORDERABLE_MAIL_PROVIDERS = new Set(['generator_email', 'tenminutemail', 'tempmail', 'awamail', 'outlookapi']);
 
 function normalizeMailProvider(value) {
   const provider = String(value || 'auto').trim().toLowerCase();
-  if (provider === 'auto' || provider === 'tempmail' || provider === 'awamail' || provider === '2925' || provider === 'cfmail' || provider === 'outlookapi') {
+  if (
+    provider === 'auto' ||
+    provider === 'generator_email' ||
+    provider === 'tenminutemail' ||
+    provider === 'tempmail' ||
+    provider === 'awamail' ||
+    provider === '2925' ||
+    provider === 'cfmail' ||
+    provider === 'outlookapi'
+  ) {
     return provider;
   }
   throw new Error(`Unsupported mail provider: ${value}`);
@@ -46,7 +57,7 @@ function normalizeMailProviderOrder(value) {
 }
 
 function shouldAutoAllocateMailbox(provider, email = '') {
-  if (provider === 'auto' || provider === 'tempmail' || provider === 'awamail' || provider === 'cfmail') {
+  if (provider === 'auto' || provider === 'generator_email' || provider === 'tenminutemail' || provider === 'tempmail' || provider === 'awamail' || provider === 'cfmail') {
     return true;
   }
 
@@ -125,6 +136,8 @@ Usage:
   node register.js --email <email> --password <password>
   node register.js --count 5 --prefix dolphinthauto
   node register.js --count 3 --mail-provider auto
+  node register.js --count 3 --mail-provider generator_email
+  node register.js --count 3 --mail-provider tenminutemail
   node register.js --count 3 --mail-provider tempmail
   node register.js --count 3 --mail-provider awamail
   node register.js --count 3 --mail-provider outlookapi
@@ -141,8 +154,8 @@ Options:
   --headless        Run in headless mode
   --background-window  Keep browser UI but start minimized/in background when possible
   --proxy           Main browser proxy, for example http://127.0.0.1:7890
-  --mail-provider   auto | tempmail | awamail | outlookapi
-  --mail-provider-order  Provider fallback order for auto mode, for example tempmail,awamail
+  --mail-provider   auto | generator_email | tenminutemail | tempmail | awamail | outlookapi
+  --mail-provider-order  Provider fallback order for auto mode, for example generator_email,tenminutemail,tempmail,awamail
   --manual-oauth    Generate or complete a manual OAuth PKCE flow for Codex tokens
   --callback-url    OAuth callback URL used to exchange the authorization code
   --oauth-state-file  Path to the saved OAuth state/code_verifier JSON
@@ -194,6 +207,20 @@ function createConcreteMailbox(provider, runtimeConfig) {
     };
   }
 
+  if (provider === 'tenminutemail') {
+    return {
+      mailbox: new MailTenMinuteMail(runtimeConfig),
+      mailContext: null,
+    };
+  }
+
+  if (provider === 'generator_email') {
+    return {
+      mailbox: new MailGeneratorEmail(runtimeConfig),
+      mailContext: null,
+    };
+  }
+
   if (provider === 'awamail') {
     return {
       mailbox: new MailAwaMail(runtimeConfig),
@@ -218,6 +245,7 @@ function createConcreteMailbox(provider, runtimeConfig) {
 async function createMailbox(browser, opts) {
   const runtimeConfig = {
     ...config,
+    browser,
     proxy: opts.proxy || config.proxy || '',
     mailProvider: opts.mailProvider,
     mailProviderOrder: normalizeMailProviderOrder(opts.mailProviderOrder || config.mailProviderOrder || AUTO_MAIL_PROVIDER_ORDER),
@@ -228,6 +256,14 @@ async function createMailbox(browser, opts) {
     awamail: {
       ...(config.awamail || {}),
       proxy: config.awamail?.proxy || opts.proxy || config.proxy || '',
+    },
+    tenMinuteMail: {
+      ...(config.tenMinuteMail || {}),
+      proxy: config.tenMinuteMail?.proxy || opts.proxy || config.proxy || '',
+    },
+    generatorEmail: {
+      ...(config.generatorEmail || {}),
+      proxy: config.generatorEmail?.proxy || opts.proxy || config.proxy || '',
     },
     cfmail: {
       ...(config.cfmail || {}),
@@ -243,6 +279,8 @@ async function createMailbox(browser, opts) {
       mailbox: new MultiMailProvider(runtimeConfig, {
         order: runtimeConfig.mailProviderOrder,
         factories: {
+          generator_email: () => new MailGeneratorEmail(runtimeConfig),
+          tenminutemail: () => new MailTenMinuteMail(runtimeConfig),
           tempmail: () => new MailTempMail(runtimeConfig),
           awamail: () => new MailAwaMail(runtimeConfig),
           outlookapi: () => new MailOutlookEmail(runtimeConfig),
@@ -339,7 +377,13 @@ function persistSingleAccountResult(result) {
 
 function shouldRetryFreshOAuth(lastError) {
   const text = String(lastError || '').toLowerCase();
-  return text.includes('add_phone') && text.includes('workspace');
+  return (
+    (text.includes('add_phone') && text.includes('workspace')) ||
+    text.includes('workspace 解析失败') ||
+    text.includes('workspace 已获取但未生成 token') ||
+    text.includes('cloudflare') ||
+    text.includes('cf 盾')
+  );
 }
 
 function formatProgressLine(label, value) {
@@ -753,7 +797,14 @@ async function main() {
 
   const accounts = [];
 
-  if (opts.mailProvider === 'auto' || opts.mailProvider === 'tempmail' || opts.mailProvider === 'awamail' || opts.mailProvider === 'cfmail') {
+  if (
+    opts.mailProvider === 'auto' ||
+    opts.mailProvider === 'generator_email' ||
+    opts.mailProvider === 'tenminutemail' ||
+    opts.mailProvider === 'tempmail' ||
+    opts.mailProvider === 'awamail' ||
+    opts.mailProvider === 'cfmail'
+  ) {
     if (opts.email) {
       console.log(`Ignoring --email in ${opts.mailProvider} mode. The mailbox will be created automatically.`);
     }

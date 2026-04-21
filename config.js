@@ -83,7 +83,7 @@ function resolvePreferredPath(...candidates) {
 }
 
 const env = loadEnv();
-const DEFAULT_MAIL_PROVIDER_ORDER = ['tempmail', 'awamail'];
+const DEFAULT_MAIL_PROVIDER_ORDER = ['generator_email', 'tenminutemail', 'tempmail', 'awamail'];
 
 const defaultCfmailConfigPath = resolvePreferredPath(
   env.CFMAIL_CONFIG_PATH || 'cfmail_accounts.json',
@@ -102,6 +102,28 @@ const config = {
     proxy: env.TEMPMAIL_PROXY || '',
     part: env.TEMPMAIL_PART || 'main',
     expireMinutes: parseInteger(env.TEMPMAIL_EXPIRE_MINUTES, 1440),
+  },
+  tenMinuteMail: {
+    baseUrl: env.TENMINUTEMAIL_BASE_URL || env.TEN_MINUTE_MAIL_BASE_URL || 'https://10minutemail.com',
+    bootstrapPath: env.TENMINUTEMAIL_BOOTSTRAP_PATH || env.TEN_MINUTE_MAIL_BOOTSTRAP_PATH || '/',
+    proxy: env.TENMINUTEMAIL_PROXY || env.TEN_MINUTE_MAIL_PROXY || env.PROXY || '',
+    pollIntervalSeconds: parseInteger(
+      env.TENMINUTEMAIL_POLL_INTERVAL_SECONDS || env.TEN_MINUTE_MAIL_POLL_INTERVAL_SECONDS,
+      5,
+    ),
+  },
+  generatorEmail: {
+    baseUrl: env.GENERATOR_EMAIL_BASE_URL || 'https://generator.email',
+    proxy: env.GENERATOR_EMAIL_PROXY || env.PROXY || '',
+    domains: parseList(env.GENERATOR_EMAIL_DOMAINS || env.GENERATOR_DOMAINS, []),
+    domainsFile: env.GENERATOR_EMAIL_DOMAINS_FILE || env.GENERATOR_DOMAINS_FILE || '',
+    domainStrategy: env.GENERATOR_EMAIL_DOMAIN_STRATEGY || 'random',
+    domainKeywords: parseList(env.GENERATOR_EMAIL_DOMAIN_KEYWORDS, ['mail', 'com', 'inbox']),
+    enumerateAllDomains: parseBoolean(env.GENERATOR_EMAIL_ENUMERATE_ALL_DOMAINS, false),
+    domainEnumQueries: parseList(env.GENERATOR_EMAIL_DOMAIN_ENUM_QUERIES, []),
+    domainEnumSavePath: env.GENERATOR_EMAIL_DOMAIN_ENUM_SAVE_PATH || path.join('output', 'generator-email-domains.txt'),
+    maxCreateRetries: parseInteger(env.GENERATOR_EMAIL_MAX_CREATE_RETRIES, 12),
+    pollIntervalSeconds: parseInteger(env.GENERATOR_EMAIL_POLL_INTERVAL_SECONDS, 4),
   },
   awamail: {
     baseUrl: env.AWAMAIL_BASE_URL || 'https://awamail.com',
